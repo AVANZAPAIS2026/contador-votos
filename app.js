@@ -1,33 +1,90 @@
+const SHEET_URL = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vRuscYuojiaUcryghz1mhpwEinXhGp9QtIv9u_HrzIlpo1LOSAfqU2jfk-ZRdExDMOU5l9i2tVfGq5R/pub?gid=257000309&single=true&output=tsv';
+const REFRESH_INTERVAL = 60000;
+const CANDIDATE_PARTIES = {
+  'Javier Diez': 'Renovación Popular',
+  'Alberto Tejada': 'Acción Popular',
+  'Willy Soriano': 'PPC',
+  'Roberth Montoya': 'Avanza País',
+  'Gina Casanova': 'Somos Perú',
+  'Edgar Núñez': 'Libertad Popular',
+  'Juan Pilco': 'APRA',
+  'Joel Miranda': 'ADP',
+};
+
 const electionState = {
-  totalVotes: 128460,
-  countedTables: 782,
-  totalTables: 1240,
-  participation: 64.8,
-  blankVotes: 3.2,
-  nullVotes: 1.7,
-  invalidVotes: 0.8,
-  candidates: [
-    { name: 'Valentina Ríos', party: 'Movimiento Progreso', votes: 54230, color: '#e28748' },
-    { name: 'Tomás Herrera', party: 'Futuro Común', votes: 42180, color: '#5b83bd' },
-    { name: 'Camila Torres', party: 'Acuerdo Ciudadano', votes: 23510, color: '#c27b91' },
-    { name: 'Julián Vega', party: 'Partido Nacional', votes: 8510, color: '#8b9b73' },
-  ],
+  totalVotes: 0,
+  blankVotes: 0,
+  nullAndInvalidVotes: 0,
+  candidates: [],
 };
 
 const elements = {
   totalVotes: document.querySelector('#total-votes'),
-  votesThisMinute: document.querySelector('#votes-this-minute'),
-  countedTables: document.querySelector('#counted-tables'),
-  countedPercent: document.querySelector('#counted-percent'),
-  countedProgress: document.querySelector('#counted-progress'),
-  participation: document.querySelector('#participation'),
   blankVotes: document.querySelector('#blank-votes'),
-  nullVotes: document.querySelector('#null-votes'),
-  invalidVotes: document.querySelector('#invalid-votes'),
+  nullAndInvalidVotes: document.querySelector('#null-invalid-votes'),
   resultsList: document.querySelector('#results-list'),
+  dataStatus: document.querySelector('#data-status'),
 };
 
 const formatNumber = (value) => new Intl.NumberFormat('es-CL').format(Math.round(value));
+const formatPercentage = (value) => `${value.toFixed(1).replace('.', ',')}%`;
+
+function parseVotes(value) {
+  const parsedValue = Number.parseInt(String(value).replace(/[^\d-]/g, ''), 10);
+  return Number.isFinite(parsedValue) ? parsedValue : 0;
+}
+
+function escapeHtml(value) {
+  return String(value).replace(/[&<>"']/g, (character) => ({
+    '&': '&amp;',
+    '<': '&lt;',
+    '>': '&gt;',
+    '"': '&quot;',
+    "'": '&#39;',
+  })[character]);
+}
+
+function parseSheet(text) {
+  const rows = text.trim().split(/\r?\n/).map((row) => row.split('\t').map((cell) => cell.trim()));
+  const headerIndex = rows.findIndex((row) => row.some((cell) => cell.toUpperCase() === 'BLANCO')
+    && row.some((cell) => cell.toUpperCase() === 'N/V')
+    && row.some((cell) => cell.toUpperCase() === 'TOTAL'));
+
+  if (headerIndex < 0) throw new Error('No se encontró el encabezado de resultados.');
+
+  const headers = rows[headerIndex];
+  const blankIndex = headers.findIndex((cell) => cell.toUpperCase() === 'BLANCO');
+  const nullAndInvalidIndex = headers.findIndex((cell) => cell.toUpperCase() === 'N/V');
+  const totalIndex = headers.findIndex((cell) => cell.toUpperCase() === 'TOTAL');
+  const totalRow = rows.find((row, index) => index > headerIndex && row.some((cell) => cell.toUpperCase() === 'TOTAL'));
+  const pollingPlaceRows = rows.filter((row, index) => index > headerIndex && /^\d+$/.test(row[0] || ''));
+  const voteAt = (row, index) => parseVotes(row[index] || '0');
+  const aggregateVotes = (index) => totalRow
+    ? voteAt(totalRow, index)
+    : pollingPlaceRows.reduce((sum, row) => sum + voteAt(row, index), 0);
+
+  const totalVotes = totalRow
+    ? voteAt(totalRow, totalIndex)
+    : pollingPlaceRows.reduce((sum, row) => sum + voteAt(row, totalIndex), 0);
+
+  const candidates = headers.slice(2, blankIndex).map((name, index) => ({
+    name,
+    votes: aggregateVotes(index + 2),
+    color: index % 2 === 0 ? '#ff007e' : '#0041a7',
+  }));
+
+  candidates.push(
+    { name: 'BLANCO', votes: aggregateVotes(blankIndex), color: '#ff007e', description: 'Votos en blanco' },
+    { name: 'N/V', votes: aggregateVotes(nullAndInvalidIndex), color: '#0041a7', description: 'Votos nulos o viciados' },
+  );
+
+  return {
+    totalVotes,
+    blankVotes: aggregateVotes(blankIndex),
+    nullAndInvalidVotes: aggregateVotes(nullAndInvalidIndex),
+    candidates,
+  };
+}
 
 function animateValue(element, nextValue, formatter = formatNumber) {
   const currentValue = Number(element.dataset.value || 0);
@@ -51,39 +108,52 @@ function animateValue(element, nextValue, formatter = formatNumber) {
 }
 
 function renderCandidates() {
-  const sortedCandidates = [...electionState.candidates].sort((a, b) => b.votes - a.votes);
+  const previousPositions = new Map([...elements.resultsList.querySelectorAll('.candidate-row')]
+    .map((row) => [row.dataset.candidateName, row.getBoundingClientRect().top]));
+  const sortedCandidates = [...electionState.candidates].sort((first, second) => second.votes - first.votes);
+
   elements.resultsList.innerHTML = sortedCandidates.map((candidate, index) => {
-    const percentage = (candidate.votes / electionState.totalVotes) * 100;
+    const percentage = electionState.totalVotes ? (candidate.votes / electionState.totalVotes) * 100 : 0;
+    const candidateName = escapeHtml(candidate.name);
+    const description = escapeHtml(candidate.description || CANDIDATE_PARTIES[candidate.name] || 'Candidato');
     return `
-      <article class="candidate-row">
+      <article class="candidate-row" data-candidate-name="${candidateName}">
         <div class="candidate-rank">${String(index + 1).padStart(2, '0')}</div>
         <div>
-          <div class="candidate-name">${candidate.name}</div>
-          <div class="candidate-party">${candidate.party}</div>
+          <div class="candidate-name">${candidateName}</div>
+          <div class="candidate-party">${description}</div>
         </div>
-        <div class="bar-area" aria-label="${percentage.toFixed(1)}% de los votos">
+        <div class="bar-area" aria-label="${formatPercentage(percentage)} de los votos">
           <div class="bar-fill" style="--candidate-color: ${candidate.color}; width: ${percentage}%"></div>
         </div>
         <div class="candidate-result">
-          <div class="candidate-percent">${percentage.toFixed(1).replace('.', ',')}%</div>
+          <div class="candidate-percent">${formatPercentage(percentage)}</div>
           <div class="candidate-votes">${formatNumber(candidate.votes)} votos</div>
         </div>
       </article>
     `;
   }).join('');
+
+  if (!previousPositions.size || window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+
+  for (const row of elements.resultsList.querySelectorAll('.candidate-row')) {
+    const previousTop = previousPositions.get(row.dataset.candidateName);
+    if (previousTop === undefined) continue;
+
+    const verticalOffset = previousTop - row.getBoundingClientRect().top;
+    if (Math.abs(verticalOffset) < 1) continue;
+
+    row.animate(
+      [{ transform: `translateY(${verticalOffset}px)` }, { transform: 'translateY(0)' }],
+      { duration: 650, easing: 'cubic-bezier(0.22, 1, 0.36, 1)' },
+    );
+  }
 }
 
-function renderSummary(newVotes = 0) {
+function renderSummary() {
   animateValue(elements.totalVotes, electionState.totalVotes);
-  elements.votesThisMinute.textContent = `+${formatNumber(newVotes)}`;
-  animateValue(elements.countedTables, electionState.countedTables);
-  animateValue(elements.participation, electionState.participation, (value) => value.toFixed(1).replace('.', ','));
-  animateValue(elements.blankVotes, electionState.blankVotes, (value) => `${value.toFixed(1).replace('.', ',')}`);
-  animateValue(elements.nullVotes, electionState.nullVotes, (value) => `${value.toFixed(1).replace('.', ',')}`);
-  animateValue(elements.invalidVotes, electionState.invalidVotes, (value) => `${value.toFixed(1).replace('.', ',')}`);
-  const countedPercent = (electionState.countedTables / electionState.totalTables) * 100;
-  elements.countedPercent.textContent = `${countedPercent.toFixed(1).replace('.', ',')}%`;
-  elements.countedProgress.style.width = `${countedPercent}%`;
+  animateValue(elements.blankVotes, electionState.blankVotes);
+  animateValue(elements.nullAndInvalidVotes, electionState.nullAndInvalidVotes);
 }
 
 function render() {
@@ -91,23 +161,22 @@ function render() {
   renderCandidates();
 }
 
-// Sustituir esta función por la suscripción a WebSocket, SSE o API.
-function simulateIncomingVotes() {
-  const newVotes = Math.floor(Math.random() * 150) + 40;
-  const leadingCandidate = electionState.candidates[0];
-  leadingCandidate.votes += Math.floor(newVotes * 0.42);
-  electionState.candidates[1].votes += Math.floor(newVotes * 0.33);
-  electionState.candidates[2].votes += Math.floor(newVotes * 0.18);
-  electionState.candidates[3].votes += newVotes - Math.floor(newVotes * 0.42) - Math.floor(newVotes * 0.33) - Math.floor(newVotes * 0.18);
-  electionState.totalVotes += newVotes;
-  electionState.countedTables = Math.min(electionState.totalTables, electionState.countedTables + (Math.random() > 0.6 ? 1 : 0));
-  electionState.participation = Math.min(100, electionState.participation + 0.01);
-  electionState.blankVotes = Math.min(100, electionState.blankVotes + 0.01);
-  electionState.nullVotes = Math.min(100, electionState.nullVotes + 0.01);
-  electionState.invalidVotes = Math.min(100, electionState.invalidVotes + 0.005);
-  renderSummary(newVotes);
-  renderCandidates();
+async function loadResults() {
+  try {
+    const response = await fetch(SHEET_URL, { cache: 'no-store' });
+    if (!response.ok) throw new Error(`La hoja respondió con estado ${response.status}.`);
+
+    Object.assign(electionState, parseSheet(await response.text()));
+    render();
+    elements.dataStatus.textContent = `Datos actualizados: ${new Intl.DateTimeFormat('es-CL', { timeStyle: 'short' }).format(new Date())}`;
+  } catch (error) {
+    elements.dataStatus.textContent = electionState.candidates.length
+      ? 'No se pudo actualizar. Se conservan los últimos datos cargados.'
+      : 'No se pudieron cargar los resultados. Verifica tu conexión y vuelve a intentar.';
+    console.error('Error al cargar resultados desde Google Sheets:', error);
+  }
 }
 
-render();
-setInterval(simulateIncomingVotes, 8000);
+elements.dataStatus.textContent = 'Cargando resultados...';
+loadResults();
+setInterval(loadResults, REFRESH_INTERVAL);

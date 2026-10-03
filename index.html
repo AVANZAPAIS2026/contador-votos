@@ -17,37 +17,23 @@
           <article class="summary-card summary-card--accent">
             <div class="card-label"><span class="label-dot"></span>Total de votos</div>
             <div class="summary-value" id="total-votes">0</div>
-            <div class="trend trend--up"><span>↑</span> <span id="votes-this-minute">+0</span></div>
           </article>
           <article class="summary-card">
-            <div class="card-label"><span class="label-dot label-dot--muted"></span>Mesas escrutadas</div>
-            <div class="summary-value"><span id="counted-tables">0</span><small>/ 1.240</small></div>
-            <div class="progress-track" aria-label="Porcentaje de mesas escrutadas"><span id="counted-progress"></span></div>
-            <div class="progress-caption"><span id="counted-percent">0%</span></div>
+            <div class="card-label"><span class="label-dot label-dot--muted"></span>Votos en blanco</div>
+            <div class="summary-value"><span id="blank-votes">0</span></div>
           </article>
           <article class="summary-card">
-            <div class="card-label"><span class="label-dot label-dot--muted"></span>Participación</div>
-            <div class="summary-value"><span id="participation">0</span><small>%</small></div>
-          </article>
-          <article class="summary-card">
-            <div class="card-label"><span class="label-dot label-dot--muted"></span>Votos blancos</div>
-            <div class="summary-value"><span id="blank-votes">0</span><small>%</small></div>
-          </article>
-          <article class="summary-card">
-            <div class="card-label"><span class="label-dot label-dot--muted"></span>Votos nulos</div>
-            <div class="summary-value"><span id="null-votes">0</span><small>%</small></div>
-          </article>
-          <article class="summary-card">
-            <div class="card-label"><span class="label-dot label-dot--muted"></span>Votos viciados</div>
-            <div class="summary-value"><span id="invalid-votes">0</span><small>%</small></div>
+            <div class="card-label"><span class="label-dot label-dot--muted"></span>Votos N/V</div>
+            <div class="summary-value"><span id="null-invalid-votes">0</span></div>
           </article>
         </section>
 
         <section class="results-section" aria-labelledby="results-title">
           <div class="section-heading">
             <div>
-              <h2 id="results-title">Porcentaje por candidato</h2>
+              <h2 id="results-title">Porcentaje por candidatura</h2>
             </div>
+            <p class="data-status" id="data-status" role="status" aria-live="polite"></p>
           </div>
 
           <div class="results-list" id="results-list" aria-live="polite"></div>
