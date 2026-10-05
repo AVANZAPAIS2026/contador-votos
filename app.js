@@ -1,4 +1,7 @@
-const SHEET_URL = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vRuscYuojiaUcryghz1mhpwEinXhGp9QtIv9u_HrzIlpo1LOSAfqU2jfk-ZRdExDMOU5l9i2tVfGq5R/pub?gid=257000309&single=true&output=tsv';
+const SHEET_BASE_URL = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vRuscYuojiaUcryghz1mhpwEinXhGp9QtIv9u_HrzIlpo1LOSAfqU2jfk-ZRdExDMOU5l9i2tVfGq5R/pub';
+const RESULTS_SHEET_GID = 257000309;
+const TABLE_SHEET_GIDS = [613666229, 854994891, 279078735, 1215162400];
+const TOTAL_TABLES = 422;
 const REFRESH_INTERVAL = 60000;
 const CANDIDATE_PARTIES = {
   'Javier Diez': 'Renovación Popular',
@@ -13,6 +16,8 @@ const CANDIDATE_PARTIES = {
 
 const electionState = {
   totalVotes: 0,
+  countedTables: 0,
+  totalTables: TOTAL_TABLES,
   blankVotes: 0,
   nullAndInvalidVotes: 0,
   candidates: [],
@@ -20,6 +25,9 @@ const electionState = {
 
 const elements = {
   totalVotes: document.querySelector('#total-votes'),
+  countedTables: document.querySelector('#counted-tables'),
+  countedPercent: document.querySelector('#counted-percent'),
+  countedProgress: document.querySelector('#counted-progress'),
   blankVotes: document.querySelector('#blank-votes'),
   nullAndInvalidVotes: document.querySelector('#null-invalid-votes'),
   resultsList: document.querySelector('#results-list'),
@@ -84,6 +92,19 @@ function parseSheet(text) {
     nullAndInvalidVotes: aggregateVotes(nullAndInvalidIndex),
     candidates,
   };
+}
+
+function findCompletedTableNumbers(text) {
+  const rows = text.split(/\r?\n/).map((row) => row.split('\t').map((cell) => cell.trim()));
+  const headerIndex = rows.findIndex((row) => row.some((cell) => cell.toUpperCase() === 'N° DE MESA')
+    && row.some((cell) => cell.toUpperCase() === 'TOTAL'));
+
+  if (headerIndex < 0) throw new Error('No se encontró el encabezado de mesas.');
+
+  const totalIndex = rows[headerIndex].findIndex((cell) => cell.toUpperCase() === 'TOTAL');
+  return rows.slice(headerIndex + 1)
+    .filter((row) => /^\d+$/.test(row[0] || '') && parseVotes(row[totalIndex] || '0') > 0)
+    .map((row) => row[0]);
 }
 
 function animateValue(element, nextValue, formatter = formatNumber) {
@@ -152,8 +173,14 @@ function renderCandidates() {
 
 function renderSummary() {
   animateValue(elements.totalVotes, electionState.totalVotes);
+  animateValue(elements.countedTables, electionState.countedTables);
   animateValue(elements.blankVotes, electionState.blankVotes);
   animateValue(elements.nullAndInvalidVotes, electionState.nullAndInvalidVotes);
+
+  const countedPercent = Math.min((electionState.countedTables / electionState.totalTables) * 100, 100);
+  elements.countedPercent.textContent = formatPercentage(countedPercent);
+  elements.countedProgress.style.width = `${countedPercent}%`;
+  elements.countedProgress.parentElement.setAttribute('aria-valuenow', String(electionState.countedTables));
 }
 
 function render() {
@@ -163,10 +190,18 @@ function render() {
 
 async function loadResults() {
   try {
-    const response = await fetch(SHEET_URL, { cache: 'no-store' });
-    if (!response.ok) throw new Error(`La hoja respondió con estado ${response.status}.`);
+    const responses = await Promise.all([
+      fetch(`${SHEET_BASE_URL}?gid=${RESULTS_SHEET_GID}&single=true&output=tsv`, { cache: 'no-store' }),
+      ...TABLE_SHEET_GIDS.map((gid) => fetch(`${SHEET_BASE_URL}?gid=${gid}&single=true&output=tsv`, { cache: 'no-store' })),
+    ]);
+    const failedResponse = responses.find((response) => !response.ok);
+    if (failedResponse) throw new Error(`Una hoja respondió con estado ${failedResponse.status}.`);
 
-    Object.assign(electionState, parseSheet(await response.text()));
+    const [resultsText, ...tableSheetTexts] = await Promise.all(responses.map((response) => response.text()));
+    const completedTables = new Set(tableSheetTexts.flatMap(findCompletedTableNumbers));
+    if (completedTables.size > electionState.totalTables) throw new Error('El conteo de mesas supera las 422 actas esperadas.');
+
+    Object.assign(electionState, parseSheet(resultsText), { countedTables: completedTables.size });
     render();
     elements.dataStatus.textContent = `Datos actualizados: ${new Intl.DateTimeFormat('es-CL', { timeStyle: 'short' }).format(new Date())}`;
   } catch (error) {

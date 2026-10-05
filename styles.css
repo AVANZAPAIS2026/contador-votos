@@ -56,7 +56,7 @@ h1 em { color: var(--teal); font-style: normal; }
 .status-icon { display: grid; place-items: center; width: 30px; height: 30px; border-radius: 50%; color: var(--teal); background: var(--mint); font-size: 19px; animation: rotate 2s linear infinite; }
 .hero-status strong, .hero-status span { display: block; }.hero-status strong { font-size: 12px; }.hero-status div span { margin-top: 3px; color: var(--muted); font-size: 10px; }
 
-.summary-grid { display: grid; grid-template-columns: 1.25fr repeat(5, 1fr); gap: 10px; }
+.summary-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; }
 .summary-card { min-height: 126px; padding: 17px 16px; border: 1px solid var(--line); border-radius: 10px; background: rgba(255,255,255,.74); box-shadow: 0 8px 24px rgba(43, 65, 62, 0.045); }
 .summary-card--accent { color: #fff; border-color: var(--teal); background: var(--teal); }
 .card-label { display: flex; align-items: center; gap: 8px; color: var(--muted); font-size: 11px; font-weight: 700; letter-spacing: .02em; text-transform: uppercase; }.summary-card--accent .card-label { color: #b9e1d6; }
